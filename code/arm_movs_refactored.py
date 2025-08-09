@@ -335,25 +335,44 @@ class ArmController: # basically joint2_3 and all the rest above
         while True:
             print("=== Starting pick sequence ===")
             
-            # Open claw
-            print("Opening claw...")
-            self.claw_controller.open()
-            
             # Align joint 1
             print("Aligning joint 1...")
             while not self.joint1_controller.move_to_goal():
                 time.sleep(Config.MOVEMENT_DELAY)
+
+            # Open claw
+            print("Opening claw...")
+            self.claw_controller.open()
             
-            # Control joints 2 and 3
-            print("Controlling joints 2-3...")
-            self.joint2_3_control()
+            # sending robot's claw above the c0 object
+
+            # lowering robot's claw
             
             # Close claw
             print("Closing claw...")
             self.claw_controller.close()
+
+            # raising robot's claw
+
+            # retracting robot claw to shortest distance between claw and arm center possible
+
+            # moving joint 1 until bin position is reached
+
+            # sending robot's claw above the bin
+
+            # lowering robot's claw
             
+            # open claw
+            print("Opening claw...")
+            self.claw_controller.open()
+
+            # raising robot's claw
+
+            # retracting robot claw to shortest distance between claw and arm center possible
+
+            # end
             print("=== Pick sequence completed ===")
-            time.sleep(1)  # Brief pause before next cycle
+            time.sleep(1)  # Brief pause before next cycle of trash picking
 
 def main():
     """Main execution function"""
