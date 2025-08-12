@@ -138,7 +138,7 @@ class ServoController:
 class ClawController:
     """Controls claw opening and closing"""
     
-    OPEN_ANGLE = 175
+    OPEN_ANGLE = 167
     CLOSE_ANGLE = 140  # Full closed - might use high energy
     
     @classmethod
@@ -302,38 +302,129 @@ class ArmController: # basically joint2_3 and all the rest above
     def __init__(self):
         self.joint1_controller = Joint1Controller()
         self.claw_controller = ClawController()
+        # Track current servo positions for joints 2 and 3
+        self.servo2_angle = 130  # Starting retracted position
+        self.servo3_angle = 140  # Starting retracted position
 
-    def joint2_3_control(self):
-        """Control joints 2 and 3 for vertical movement"""
-        distances = DistanceAnalyzer.get_all_distances()
-        if distances is None:
-            print("Cannot analyze distances - coordinates not available")
-            return
+    def joint2_3_retract(self):
+        """Instantly retract arm to starting position"""
+        print("Retracting arm to starting position...")
+        self.servo2_angle = 130
+        self.servo3_angle = 140
         
-        current_to_goal_distance = distances['current_to_goal']
-        reach_difference = DistanceAnalyzer.get_reach_difference()
+        ServoController.send_command_with_retry(3, -self.servo3_angle)
+        time.sleep(0.5)
+        ServoController.send_command_with_retry(2, self.servo2_angle)
+        print(f"Arm retracted: Servo 2 → {self.servo2_angle}°, Servo 3 → {self.servo3_angle}°")
+
+    def joint2_3_extend(self):
+        """Incrementally extend arm toward goal"""
+        print("Extending arm toward goal...")
         
-        print(f"Distance between current claw and goal: {current_to_goal_distance:.2f} pixels")
-        print(f"Reach difference (goal - current): {reach_difference:.2f} pixels")
+        # Distance threshold - when we're this close, do one final step and stop
+        CLOSE_ENOUGH_THRESHOLD = 0.0  # pixels
+        ANGLE_INCREMENT = 5  # degrees
+        STEP_DELAY = 1.0  # seconds between steps
+        MAX_ANGLE = 180  # Maximum safe angle for servos
         
-        if distances['goal_closer_than_current']:
-            print("Goal is closer to arm base - need to retract joints 2&3")
-        else:
-            print("Goal is further from arm base - need to extend joints 2&3")
+        while True:
+            # Get current distances
+            distances = DistanceAnalyzer.get_all_distances()
+            if distances is None:
+                print("Cannot get distances - coordinates not available")
+                break
+            
+            current_to_goal_distance = distances['current_to_goal']
+            reach_difference = DistanceAnalyzer.get_reach_difference()
+            
+            print(f"Distance to goal: {current_to_goal_distance:.1f} pixels")
+            print(f"Reach difference: {reach_difference:.1f} pixels")
+            print(f"Current angles: Servo 2 = {self.servo2_angle}°, Servo 3 = {self.servo3_angle}°")
+            
+            # Check if we're close enough to goal
+            if current_to_goal_distance <= CLOSE_ENOUGH_THRESHOLD:
+                print(f"Close enough to goal ({current_to_goal_distance:.1f} <= {CLOSE_ENOUGH_THRESHOLD})")
+                print("Doing one final extension step...")
+                
+                # Do one final step and exit
+                if self.servo2_angle < MAX_ANGLE and self.servo3_angle < MAX_ANGLE:
+                    self.servo2_angle += ANGLE_INCREMENT
+                    self.servo3_angle += ANGLE_INCREMENT
+                    
+                    ServoController.send_command_with_retry(2, self.servo2_angle)
+                    time.sleep(0.5)
+                    ServoController.send_command_with_retry(3, self.servo3_angle)
+                    print(f"Final step: Servo 2 → {self.servo2_angle}°, Servo 3 → {self.servo3_angle}°")
+                
+                print("Extension complete - positioned above goal")
+                break
+            
+            # Check if we need to extend (goal is farther from arm base than current position)
+            if reach_difference > 0:
+                print("Need to extend further...")
+                
+                # Check if we can still extend safely
+                if self.servo2_angle >= MAX_ANGLE or self.servo3_angle >= MAX_ANGLE:
+                    print("Reached maximum extension - cannot extend further")
+                    break
+                
+                # Extend both servos by the same amount
+                self.servo2_angle += ANGLE_INCREMENT
+                self.servo3_angle += ANGLE_INCREMENT
+                
+                # Clamp to maximum angles
+                self.servo2_angle = min(self.servo2_angle, MAX_ANGLE)
+                self.servo3_angle = min(self.servo3_angle, MAX_ANGLE)
+                
+                ServoController.send_command_with_retry(2, self.servo2_angle)
+                time.sleep(0.5)
+                ServoController.send_command_with_retry(3, self.servo3_angle)
+                print(f"Extended: Servo 2 → {self.servo2_angle}°, Servo 3 → {self.servo3_angle}°")
+                
+            else:
+                print("Goal is closer than current position - no need to extend further")
+                break
+            
+            # Wait before next step
+            time.sleep(STEP_DELAY)
+
+    def joint2_3_lower(self):
+        """Lower the claw by adjusting servo 3 and extend servo 2 a bit more"""
+        print("Lowering claw and extending arm slightly...")
+        LOWER_AMOUNT = 35  # degrees to lower servo 3
+        EXTEND_AMOUNT = 35  # degrees to extend servo 2 more
         
-        # TODO: Implement actual joint 2 and 3 movement based on distance analysis
-        # Example logic:
-        # - If reach_difference > threshold: extend arm (increase joint angles)
-        # - If reach_difference < -threshold: retract arm (decrease joint angles)
-        # - Use current_to_goal_distance to determine precision needed
+        # Extend servo 2 a bit more for better reach
+        self.servo2_angle += EXTEND_AMOUNT
+        self.servo2_angle = min(self.servo2_angle, 180)  # Don't exceed 180°
         
-        print("Joint 2-3 control logic ready for implementation")
-        pass
+        # Lower servo 3 to drop the claw down
+        self.servo3_angle -= LOWER_AMOUNT
+        self.servo3_angle = max(self.servo3_angle, 90)  # Don't go below 90°
+        
+        ServoController.send_command_with_retry(2, self.servo2_angle)
+        time.sleep(0.5)
+        ServoController.send_command_with_retry(3, self.servo3_angle)
+        print(f"Arm extended and claw lowered: Servo 2 → {self.servo2_angle}°, Servo 3 → {self.servo3_angle}°")
+
+    def joint2_3_raise(self):
+        """Raise the claw back to horizontal"""
+        print("Raising claw...")
+        
+        # Restore servo 3 to its extended position (same as servo 2)
+        self.servo3_angle = self.servo2_angle
+        
+        ServoController.send_command_with_retry(3, self.servo3_angle)
+        print(f"Claw raised: Servo 3 → {self.servo3_angle}°")
 
     def execute_pick_sequence(self):
         """Execute complete pick and place sequence"""
         while True:
             print("=== Starting pick sequence ===")
+            
+            # Start with retracted position
+            self.joint2_3_retract()
+            time.sleep(2)
             
             # Align joint 1
             print("Aligning joint 1...")
@@ -343,36 +434,37 @@ class ArmController: # basically joint2_3 and all the rest above
             # Open claw
             print("Opening claw...")
             self.claw_controller.open()
+            time.sleep(2)
             
-            # sending robot's claw above the c0 object
-
-            # lowering robot's claw
+            # Extend arm toward goal
+            print("Extending arm toward goal...")
+            self.joint2_3_extend()
+            time.sleep(2)
+            
+            # Lower claw to object
+            print("Lowering claw to object...")
+            self.joint2_3_lower()
+            time.sleep(2)
             
             # Close claw
             print("Closing claw...")
             self.claw_controller.close()
+            time.sleep(2)
 
-            # raising robot's claw
+            # Raise claw
+            print("Raising claw...")
+            self.joint2_3_raise()
+            time.sleep(2)
 
-            # retracting robot claw to shortest distance between claw and arm center possible
-
-            # moving joint 1 until bin position is reached
-
-            # sending robot's claw above the bin
-
-            # lowering robot's claw
+            # Retract arm
+            print("Retracting arm...")
+            self.joint2_3_retract()
+            time.sleep(2)
             
-            # open claw
-            print("Opening claw...")
-            self.claw_controller.open()
-
-            # raising robot's claw
-
-            # retracting robot claw to shortest distance between claw and arm center possible
-
-            # end
+            # TODO: Add bin positioning logic here
+            
             print("=== Pick sequence completed ===")
-            time.sleep(1)  # Brief pause before next cycle of trash picking
+            time.sleep(10)
 
 def main():
     """Main execution function"""
