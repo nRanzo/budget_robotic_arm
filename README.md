@@ -44,9 +44,9 @@ Two scripts must run simultaneously:
 
 Two scripts must run simultaneously:
 
-1. `detect.py` – Implements the YOLOv8 object detection logic *(does not update CSV files yet)*.  
-2. `arm_movs_refactored.py` – Reads CSV values and moves the robot accordingly.
-
+1. `detect.py` – Implements the YOLOv8 object detection logic *(updates `detected_object.csv`)*.  
+2. *(Currently, there is a missing processing step that should convert `detected_object.csv` into both `arm_coordinates.csv` and `coordinates_log.csv`.)*  
+3. `arm_movs_refactored.py` – Reads CSV values and moves the robot accordingly.
 ---
 
 ## Notes
